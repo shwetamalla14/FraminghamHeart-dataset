@@ -1,0 +1,361 @@
+---
+title: "R Notebook"
+output:
+  word_document: default
+  pdf_document:
+    latex_engine: xelatex
+  html_notebook: default
+always_allow_html: yes
+---
+
+```{r setup, include=FALSE}
+
+# This chunk shows/hides the code in your final report. When echo = TRUE, the code
+# is shown in the report. When echo = FALSE, the code is hidden from the final report.
+# We would like to see your code, so please leave the setting as is during the course.
+# This chunk will not show up in your reports, so you can safely ignore its existence.
+
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+
+
+The following is your first chunk to start with. Remember, you can add chunks using the menu
+above (Insert -> R) or using the keyboard shortcut Ctrl+Alt+I. A good practice is to use
+different code chunks to answer different questions. You can delete this comment if you like.
+
+Other useful keyboard shortcuts include Alt- for the assignment operator, and Ctrl+Shift+M
+for the pipe operator. You can delete these reminders if you don't want them in your report.
+
+```{r}
+#setwd("C:/") #Don't forget to set your working directory before you start!
+```
+
+
+```{r}
+library("tidyverse")
+library("tidymodels")
+library("plotly")
+library("skimr")
+```
+
+
+```{r}
+#install.packages("caret")
+library("caret")
+```
+
+
+```{r}
+dff <- read_csv("lab3FraminghamHeart.csv")
+dff
+```
+
+```{r}
+colsToFactor <- c('gender', 'education', 'currentSmoker', 'BPMeds', 'prevalentStroke', 'prevalentHyp', 'diabetes')
+colsToFactor
+```
+
+```{r}
+dff <- dff %>%
+  mutate_at(colsToFactor, ~factor(.))	
+dff
+```
+```{r}
+str(dff)
+```
+
+```{r}
+
+boxsys<- 
+  dff %>%
+ ungroup() %>%
+  ggplot(aes(y=sysBP,x=TenYearCHD, group=TenYearCHD)) + geom_boxplot()
+
+boxsys
+ggplotly(boxsys)
+
+```
+```{r}
+boxdia<- 
+  dff %>%
+ ungroup() %>%
+  ggplot(aes(y=diaBP,x=TenYearCHD, group=TenYearCHD)) + geom_boxplot()
+
+boxdia
+ggplotly(boxdia)
+```
+```{r}
+boxchol<- 
+  dff %>%
+ ungroup() %>%
+  ggplot(aes(y=totChol,x=TenYearCHD, group=TenYearCHD)) + geom_boxplot()
+
+boxchol
+ggplotly(boxchol)
+```
+```{r}
+set.seed(123)
+dffTrain <- dff %>% sample_frac(0.7)
+dffTest <- dplyr::setdiff(dff, dffTrain)
+
+dffTrain %>% group_by(gender) %>% tally() %>% mutate(pct = 100*n/sum(n))
+```
+```{r}
+dffTest %>% group_by(gender) %>% tally() %>% mutate(pct = 100*n/sum(n))
+```
+
+
+```{r}
+#Create age groups buckets 
+dffTrain %>% group_by(ageGroup=cut_interval(age, length = 10)) %>% tally() %>% mutate(pct = 100*n/sum(n))
+
+
+
+```
+```{r}
+dffTest %>% group_by(ageGroup=cut_interval(age, length = 10)) %>% tally() %>% mutate(pct = 100*n/sum(n))
+```
+
+```{r}
+hist<- dffTrain %>% ggplot(aes(x=age, fill=gender)) + geom_histogram(color="black")
+ggplotly(hist)
+
+```
+```{r}
+fitLPM <- lm(dffTrain, formula = TenYearCHD ~ . , )
+summary(fitLPM)
+
+```
+```{r}
+plot(fitLPM)
+#install.packages("car")
+library(car)
+vif(fitLPM)
+ #we remove currentSmoker since it is very related to cigsPerDay 
+#cor.test(dffTrain)
+#those greater than 2 are significiantly imp on our model 
+
+```
+```{r}
+
+fitLPM <- lm(dffTrain, formula = TenYearCHD ~ .-currentSmoker )
+summary(fitLPM)
+
+```
+
+```{r}
+resultsLPM <-
+	lm(dffTrain, formula = TenYearCHD ~ . , ) %>%
+	predict( dffTest, type = "response") %>%	 
+	bind_cols(dffTest, predictedProb=.) %>% 	 
+	mutate(predictedClass = as.factor(ifelse(predictedProb > 0.5,1,0)) ) 	 
+
+resultsLPM
+
+```
+
+```{r}
+dffTestTenYearCHD <-
+  dffTest %>%
+    group_by(TenYearCHD) %>%
+      tally() %>%
+        mutate(pct = 100*n/sum(n))
+dffTestTenYearCHD
+
+```
+```{r}
+dffTestPredictedClass <-
+    resultsLPM%>%
+      group_by(predictedClass) %>%
+        tally() %>%
+          mutate(pct = 100*n/sum(n))
+  dffTestPredictedClass
+```
+
+
+#Q4.You may have noticed that we did not convert TenYearCHD into a factor yet, even though it is a factor. This is because we wanted to use it in a linear model. It is time to make it a factor.
+
+```{r}
+dffTrain <- dffTrain %>%
+  mutate_at("TenYearCHD", ~factor(.))
+
+dffTest <- dffTest %>%
+  mutate_at("TenYearCHD", ~factor(.))
+
+dffTest
+dffTrain
+
+```
+
+#Q5. Logistic regression: Build a logistic regression using the predictor variables you decided to keep in the model you built in Q3. Which variables are statistically significant at the 95% level? Compare your results with the results you obtained from the model in Q3.
+#Hint: See the appendix for an annotated logistic regression output in R with the definitions.
+
+```{r}
+
+logit <-
+  glm(TenYearCHD ~. -(currentSmoker), family = 'binomial', data = dffTrain)
+summary(logit)
+#comparing male wrt male as we got gender1
+```
+
+```{r}
+exp(coef(logit))
+```
+#Q6. Create a new results table resultsLog by using the logistic model. Let’s continue like a pro.
+#Hint: You will follow the same steps you took in Q4 but this time for logistic regression. This means, your predictedClass will need to be defined as a factor (you know how to do this!).
+#How many people did the logistic model predict having heart disease? Report your observations and compare them with the actual values, and the predictions of the linear probability model from Q4. Do you think the logistic model is an improvement? Why?
+#Hint: For now, continue to use your code from Q2-ii to create the tables for comparison.
+```{r}
+resultsLog <-
+	glm(formula = TenYearCHD ~ .-(currentSmoker), family=binomial, data= dffTrain ) %>%
+	predict(dffTest, type = "response") %>%	 
+	bind_cols(dffTest, predictedProb=.) %>% 	
+	mutate(predictedClass = as.factor(ifelse(predictedProb > 0.5, 1, 0)))
+
+resultsLog 
+```
+```{r}
+
+dffLogTenYearCHD <-
+  resultsLog %>%
+    group_by(predictedClass) %>%
+      tally() %>%
+        mutate(pct = 100*n/sum(n))
+dffLogTenYearCHD
+
+```
+
+
+#Q7. It is time to create a confusion matrix, a final step before evaluating performance (which we will cover next week). As you’re using R like a pro, it is so easy to create a confusion matrix.
+
+```{r}
+resultsLogMatrix <-
+resultsLog %>%
+  conf_mat(truth = TenYearCHD , estimate = predictedClass)
+
+resultsLogMatrix
+
+```
+```{r}
+resultsLogMatrix %>% autoplot(type = 'heatmap')
+```
+#Q8. No analysis is complete without a visualization. Plot the relationship between the statistically significant variables (age, cigsPerDay, totChol, glucose) and the probability of heart disease:
+#Note that you stored the predicted probabilities as predictedProb in the resultsLog in Q6.
+#Use geom_point() and geom_smooth() after ggplot(), without adding any parameters
+#Be creative. For example, add color=currentSmoker (or =gender) into the aes()
+#Add a title for the plots, and label both axes [ Hint: You can use the labs() function ]
+
+```{r}
+ageProb <- resultsLog %>% ggplot(aes(x=age,y= predictedProb, color=gender)) + geom_point(aes()) + geom_smooth() + labs(title= "Age vs Probability of Heart Disease", x= "AGE", y="Probability of Heart disease")
+ageProb
+#ggplotly(ageProb)
+
+```
+```{r}
+cigsPerDayProb <- resultsLog %>% ggplot(aes(x=cigsPerDay,y= predictedProb, color=gender)) + geom_point(aes()) + geom_smooth() + labs(title= "Cigerates per day vs Probability of Heart Disease", x= "Ciggerates Per day", y="Probability of Heart disease")
+cigsPerDayProb
+#ggplotly(cigsPerDayProb)
+```
+```{r}
+totCholProb <- resultsLog %>% ggplot(aes(x=totChol,y= predictedProb, color=gender)) + geom_point(aes()) + geom_smooth() + labs(title= "Cholestrol vs Probability of Heart Disease", x= "Cholestrol", y="Probability of Heart disease")
+totCholProb
+#ggplotly(totCholProb)
+```
+```{r}
+glucoseProb <- resultsLog %>% ggplot(aes(x=glucose,y= predictedProb, color=gender)) + geom_point(aes()) + geom_smooth() + labs(title= "Glucose vs Probability of Heart Disease", x= "Glucose", y="Probability of Heart disease")
+glucoseProb
+#ggplotly(glucoseProb)
+```
+#Q9. 
+```{r}
+library("e1071")
+```
+
+
+```{r}
+resultsLogCaret <- train(TenYearCHD ~ . -(currentSmoker), family='binomial', data= dffTrain, method= 'glm' ) %>%
+	predict(dffTest, type="raw") %>%	 
+	bind_cols(dffTest, predictedClass=.) 
+
+resultsLogCaret
+```
+
+
+```{r}
+resultsLogCaret %>% xtabs(~predictedClass + TenYearCHD, .) %>% confusionMatrix(postive='1')
+
+```
+#Q10. 
+
+```{r}
+bancoDf <- read_csv("lab3BancoPortugal.csv")
+bancoDf
+```
+```{r}
+colsToFactor <- c('openedAccount', 'newcustomer', 'agegroup', 'job', 'marital', 'education', 'default', 'housing', 'loan', 'contact', 'month', 'day_of_week', 'poutcome')
+bancoDf <- bancoDf %>%
+  mutate_at(colsToFactor, ~factor(.))
+str(bancoDf)
+```
+
+```{r}
+#install.packages("e1071")
+library("e1071")
+set.seed(123)
+bancoDfTrain <- bancoDf %>% sample_frac(0.7)
+bancoDfTest <- dplyr::setdiff(bancoDf, bancoDfTrain)
+bancoDfTest
+
+```
+```{r}
+bancoDflogit <- glm(openedAccount~. -(duration),family='binomial',data=bancoDfTrain)
+summary(bancoDflogit)
+```
+
+
+```{r}
+bancoDfCaret  <-
+    train(openedAccount ~. -(duration), family = 'binomial', data= bancoDfTrain, method= 'glm' ) %>%
+    predict(bancoDfTest, type= 'raw') %>%      
+    bind_cols(bancoDfTest, predictedClass=.)  
+bancoDfCaret
+
+```
+
+```{r}
+bancoDfCaret %>% 
+  xtabs(~predictedClass+openedAccount, .) %>% 
+  confusionMatrix(positive = '1')
+
+```
+
+
+
+```{r}
+bancoDfCaret1  <-
+    train(openedAccount ~. -(duration + marital + education + housing + loan + day_of_week + euribor3m + newcustomer + contact), family = 'binomial', data= bancoDfTrain, method= 'glm' ) %>%
+    predict(bancoDfTest, type= 'raw') %>%      
+    bind_cols(bancoDfTest, predictedClass=.)  
+bancoDfCaret1
+```
+```{r}
+bancoDfCaret1 %>% 
+  xtabs(~predictedClass+openedAccount, .) %>% 
+  confusionMatrix(positive = '1')
+```
+```{r}
+bancoDfCaret2  <-
+train(openedAccount ~ marital , family = 'binomial', data= bancoDfTrain, method= 'glm' ) %>%
+    predict(bancoDfTest, type= 'raw') %>%      
+    bind_cols(bancoDfTest, predictedClass=.)  
+    
+bancoDfCaret2
+```
+```{r}
+bancoDfCaret2 %>% 
+  xtabs(~predictedClass+openedAccount, .) %>% 
+  confusionMatrix(positive = '1')
+```
+
+
